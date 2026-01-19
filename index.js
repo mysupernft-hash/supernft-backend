@@ -1,103 +1,86 @@
-// index.js
 import express from "express";
 import cors from "cors";
+import bcrypt from "bcrypt";
 import bodyParser from "body-parser";
 import fs from "fs";
-import nodemailer from "nodemailer";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 8080;
+
+// middleware
 app.use(cors());
 app.use(bodyParser.json());
 
+// file DB
 const USERS_FILE = "./users.json";
 
-// Helper to read users
+// helpers
 const readUsers = () => {
-  if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]");
-  return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+  if (!fs.existsSync(USERS_FILE)) return [];
+  return JSON.parse(fs.readFileSync(USERS_FILE));
 };
 
-// Helper to save users
 const saveUsers = (users) => {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 };
 
-// Nodemailer transporter (SendGrid SMTP)
-const transporter = nodemailer.createTransport({
-  host: "smtp.sendgrid.net",
-  port: 587,
-  auth: {
-    user: process.env.SENDGRID_USERNAME,
-    pass: process.env.SENDGRID_PASSWORD,
-  },
+// health check (VERY IMPORTANT FOR RAILWAY)
+app.get("/", (req, res) => {
+  res.send("SuperNFT backend is running");
 });
 
-// SIGNUP
+/* =========================
+   SIGNUP
+========================= */
 app.post("/signup", async (req, res) => {
   const { email, password } = req.body;
+
   if (!email || !password)
-    return res.status(400).json({ message: "Email & password required" });
+    return res.status(400).json({ message: "Missing fields" });
 
   const users = readUsers();
   const existing = users.find(u => u.email === email);
 
-  const verifyLink = `${req.protocol}://${req.get("host")}/verify?email=${encodeURIComponent(email)}`;
+  if (existing)
+    return res.status(400).json({ message: "Email already registered" });
 
-  if (existing) {
-    if (!existing.verified) {
-      // Resend verification link
-      await transporter.sendMail({
-        from: `"SuperNFT" <${process.env.SENDGRID_EMAIL}>`,
-        to: email,
-        subject: "Verify your SuperNFT account",
-        html: `<p>Click to verify your account:</p><a href="${verifyLink}">${verifyLink}</a>`
-      });
-      return res.json({ message: "Verification email resent. Check your inbox!" });
-    } else {
-      return res.status(400).json({ message: "User already registered" });
-    }
-  }
+  const hashed = await bcrypt.hash(password, 10);
 
-  // Add new user
-  users.push({ email, password, verified: false, balance: 0, nft: [] });
-  saveUsers(users);
-
-  // Send verification link
-  await transporter.sendMail({
-    from: `"SuperNFT" <${process.env.SENDGRID_EMAIL}>`,
-    to: email,
-    subject: "Verify your SuperNFT account",
-    html: `<p>Click to verify your account:</p><a href="${verifyLink}">${verifyLink}</a>`
+  users.push({
+    email,
+    password: hashed,
+    verified: true   // email verification future me add kar sakte ho
   });
 
-  return res.json({ message: "Signup successful! Check your email for verification link." });
+  saveUsers(users);
+
+  res.json({ message: "Signup successful" });
 });
 
-// EMAIL VERIFICATION
-app.get("/verify", (req, res) => {
-  const email = req.query.email;
+/* =========================
+   LOGIN
+========================= */
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
   const users = readUsers();
   const user = users.find(u => u.email === email);
-  if (!user) return res.send("Invalid verification link.");
-  user.verified = true;
-  saveUsers(users);
-  res.send("Email verified! You can now login.");
+
+  if (!user)
+    return res.status(401).json({ message: "User not found" });
+
+  const match = await bcrypt.compare(password, user.password);
+
+  if (!match)
+    return res.status(401).json({ message: "Invalid credentials" });
+
+  res.json({
+    message: "Login successful",
+    email: user.email
+  });
 });
 
-// LOGIN
-app.post("/login", (req, res) => {
-  const { email, password } = req.body;
-  const users = readUsers();
-  const user = users.find(u => u.email === email && u.password === password);
-  if (!user) return res.status(400).json({ message: "Invalid credentials" });
-  if (!user.verified) return res.status(400).json({ message: "Email not verified" });
-
-  res.json({ message: "Login successful", user: { email: user.email, balance: user.balance, nft: user.nft } });
+// START SERVER
+app.listen(PORT, () => {
+  console.log("SuperNFT backend running on port", PORT);
 });
-
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`SuperNFT backend running on port ${PORT}`));
