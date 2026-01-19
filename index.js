@@ -1,53 +1,56 @@
 // index.js
-const express = require("express");
-const bodyParser = require("body-parser");
-const cors = require("cors");
-const nodemailer = require("nodemailer");
-const fs = require("fs");
-const path = require("path");
-require("dotenv").config();
+import express from "express";
+import cors from "cors";
+import bodyParser from "body-parser";
+import fs from "fs";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(cors());
 app.use(bodyParser.json());
 
-// File to store users (simple JSON database)
-const USERS_FILE = path.join(__dirname, "users.json");
+const USERS_FILE = "./users.json";
 
-// Helper to read/write users
-function readUsers() {
-  if (!fs.existsSync(USERS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-}
-function writeUsers(users) {
+// Helper to read users
+const readUsers = () => {
+  if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]");
+  return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+};
+
+// Helper to save users
+const saveUsers = (users) => {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-}
+};
 
-// Nodemailer transporter
+// Nodemailer transporter (SendGrid SMTP)
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.sendgrid.net",
+  port: 587,
   auth: {
-    user: process.env.EMAIL_USER, // your email
-    pass: process.env.EMAIL_PASS  // app password
-  }
+    user: process.env.SENDGRID_USERNAME,
+    pass: process.env.SENDGRID_PASSWORD,
+  },
 });
 
-// Signup
+// SIGNUP
 app.post("/signup", async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+  if (!email || !password)
+    return res.status(400).json({ message: "Email & password required" });
 
   const users = readUsers();
-  const existingUser = users.find(u => u.email === email);
+  const existing = users.find(u => u.email === email);
 
-  if (existingUser) {
-    if (!existingUser.verified) {
-      // resend verification
-      const verifyLink = `${req.protocol}://${req.get("host")}/verify?email=${email}`;
+  const verifyLink = `${req.protocol}://${req.get("host")}/verify?email=${encodeURIComponent(email)}`;
+
+  if (existing) {
+    if (!existing.verified) {
+      // Resend verification link
       await transporter.sendMail({
-        from: `"SuperNFT" <${process.env.EMAIL_USER}>`,
+        from: `"SuperNFT" <${process.env.SENDGRID_EMAIL}>`,
         to: email,
         subject: "Verify your SuperNFT account",
         html: `<p>Click to verify your account:</p><a href="${verifyLink}">${verifyLink}</a>`
@@ -59,71 +62,42 @@ app.post("/signup", async (req, res) => {
   }
 
   // Add new user
-  users.push({ email, password, verified: false, wallet: 0, nfts: [] });
-  writeUsers(users);
+  users.push({ email, password, verified: false, balance: 0, nft: [] });
+  saveUsers(users);
 
-  // Send verification email
-  const verifyLink = `${req.protocol}://${req.get("host")}/verify?email=${email}`;
+  // Send verification link
   await transporter.sendMail({
-    from: `"SuperNFT" <${process.env.EMAIL_USER}>`,
+    from: `"SuperNFT" <${process.env.SENDGRID_EMAIL}>`,
     to: email,
     subject: "Verify your SuperNFT account",
     html: `<p>Click to verify your account:</p><a href="${verifyLink}">${verifyLink}</a>`
   });
 
-  res.json({ message: "Signup successful! Check your email for verification link." });
+  return res.json({ message: "Signup successful! Check your email for verification link." });
 });
 
-// Email verification
+// EMAIL VERIFICATION
 app.get("/verify", (req, res) => {
-  const { email } = req.query;
-  if (!email) return res.send("Invalid verification link");
-
+  const email = req.query.email;
   const users = readUsers();
   const user = users.find(u => u.email === email);
-  if (!user) return res.send("User not found");
+  if (!user) return res.send("Invalid verification link.");
   user.verified = true;
-  writeUsers(users);
-  res.send("Email verified successfully! You can now login.");
+  saveUsers(users);
+  res.send("Email verified! You can now login.");
 });
 
-// Login
+// LOGIN
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
   const users = readUsers();
-  const user = users.find(u => u.email === email);
-  if (!user) return res.status(400).json({ message: "User not found" });
+  const user = users.find(u => u.email === email && u.password === password);
+  if (!user) return res.status(400).json({ message: "Invalid credentials" });
   if (!user.verified) return res.status(400).json({ message: "Email not verified" });
-  if (user.password !== password) return res.status(400).json({ message: "Invalid password" });
 
-  res.json({ message: "Login successful", wallet: user.wallet, nfts: user.nfts });
+  res.json({ message: "Login successful", user: { email: user.email, balance: user.balance, nft: user.nft } });
 });
 
-// Purchase NFT
-app.post("/buy-nft", (req, res) => {
-  const { email, nftPrice, nftName } = req.body;
-  const users = readUsers();
-  const user = users.find(u => u.email === email);
-  if (!user) return res.status(400).json({ message: "User not found" });
-
-  if (user.wallet < nftPrice) return res.status(400).json({ message: "Insufficient balance" });
-
-  user.wallet -= nftPrice;
-  user.nfts.push({ name: nftName, price: nftPrice });
-  writeUsers(users);
-
-  res.json({ message: `NFT ${nftName} purchased successfully`, wallet: user.wallet });
-});
-
-// Add funds to wallet
-app.post("/add-funds", (req, res) => {
-  const { email, amount } = req.body;
-  const users = readUsers();
-  const user = users.find(u => u.email === email);
-  if (!user) return res.status(400).json({ message: "User not found" });
-  user.wallet += amount;
-  writeUsers(users);
-  res.json({ message: `Added $${amount} to wallet`, wallet: user.wallet });
-});
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`SuperNFT backend running on port ${PORT}`));
