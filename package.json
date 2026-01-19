@@ -1,7 +1,6 @@
 {
   "name": "supernft-backend",
   "version": "1.0.0",
-  "description": "Backend for SuperNFT dashboard",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -9,9 +8,9 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
+    "nodemailer": "^6.9.4",
     "body-parser": "^1.20.2",
-    "nodemailer": "^6.9.4"
+    "dotenv": "^16.3.1"
   },
-  "author": "Shivam Sharma",
   "license": "MIT"
 }
