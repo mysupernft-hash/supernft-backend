@@ -1,73 +1,97 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const cors = require("cors");
-const nodemailer = require("nodemailer");
+import express from "express";
+import cors from "cors";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
-// Temporary in-memory user storage
-let users = []; // { email, password, verified }
+const users = []; // TEMP DB (free)
 
-// ==== Nodemailer Setup ====
-// For production replace with your SendGrid SMTP or Gmail SMTP
+// ---------- EMAIL ----------
 const transporter = nodemailer.createTransport({
-    host: "smtp.sendgrid.net", 
-    port: 587,
-    secure: false,
-    auth: {
-        user: "apikey", // SendGrid username
-        pass: "YOUR_SENDGRID_API_KEY" // SendGrid API key
-    }
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
 });
 
-// ==== Signup Route ====
-app.post("/signup", (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: "All fields required" });
+// ---------- SIGNUP ----------
+app.post("/signup", async (req, res) => {
+  const { email, password } = req.body;
 
-    if(users.find(u => u.email === email)) 
-        return res.status(400).json({ message: "Email already registered" });
+  const exists = users.find(u => u.email === email);
+  if (exists) return res.json({ message: "User already exists" });
 
-    users.push({ email, password, verified: false });
+  const hashed = await bcrypt.hash(password, 10);
 
-    // Send verification link
-    const verifyLink = `https://mysupernft-hash.github.io/verify.html?email=${email}`;
-    transporter.sendMail({
-        from: '"SuperNFT" <no-reply@supernft.com>',
-        to: email,
-        subject: "Verify your SuperNFT account",
-        html: `<p>Click the link to verify your account:</p>
-               <a href="${verifyLink}">${verifyLink}</a>`
-    }).then(info => {
-        console.log("Verification email sent:", info.messageId);
-        res.json({ message: "Signup successful! Please check your email to verify." });
-    }).catch(err => {
-        console.error("Email error:", err);
-        res.status(500).json({ message: "Failed to send verification email" });
-    });
+  const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: "1d" });
+
+  users.push({
+    email,
+    password: hashed,
+    verified: false,
+    token
+  });
+
+  const verifyLink = `https://supernft-backend.onrender.com/verify?token=${token}`;
+
+  await transporter.sendMail({
+    from: `"SuperNFT" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: "Verify your SuperNFT account",
+    html: `
+      <h2>Welcome to SuperNFT</h2>
+      <p>Click below to verify your account</p>
+      <a href="${verifyLink}">Verify Email</a>
+    `
+  });
+
+  res.json({ message: "Verification link sent to your email" });
 });
 
-// ==== Verify Route ====
-app.post("/verify", (req, res) => {
-    const { email } = req.body;
-    const user = users.find(u => u.email === email);
-    if(!user) return res.status(400).json({ message: "User not found" });
+// ---------- VERIFY ----------
+app.get("/verify", (req, res) => {
+  const { token } = req.query;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = users.find(u => u.email === decoded.email);
+
+    if (!user) return res.send("Invalid link");
+
     user.verified = true;
-    res.json({ message: "Email verified successfully!" });
+    res.send("✅ Email verified successfully. You can login now.");
+  } catch {
+    res.send("❌ Verification link expired");
+  }
 });
 
-// ==== Login Route ====
-app.post("/login", (req, res) => {
-    const { email, password } = req.body;
-    const user = users.find(u => u.email === email);
-    if(!user) return res.status(400).json({ message: "User not found" });
-    if(!user.verified) return res.status(403).json({ message: "Email not verified" });
-    if(user.password !== password) return res.status(401).json({ message: "Wrong password" });
-    res.json({ message: "Login successful!" });
+// ---------- LOGIN ----------
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = users.find(u => u.email === email);
+  if (!user) return res.status(401).json({ message: "Invalid credentials" });
+
+  if (!user.verified)
+    return res.status(403).json({ message: "Please verify your email first" });
+
+  const match = await bcrypt.compare(password, user.password);
+  if (!match)
+    return res.status(401).json({ message: "Invalid credentials" });
+
+  res.json({ message: "Login successful" });
 });
 
-// ==== Start Server ====
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// ---------- START ----------
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log("✅ Backend running on port", PORT);
+});
