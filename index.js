@@ -2,12 +2,16 @@ import express from "express";
 import cors from "cors";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import { webAnalytics } from "@vercel/analytics/express";
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Enable Vercel Web Analytics
+app.use(webAnalytics());
 
 // Temp in-memory users database
 const users = [];
