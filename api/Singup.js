@@ -23,11 +23,7 @@ export default async function handler(req, res) {
     from: `"SuperNFT" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: "Verify your SuperNFT account",
-    html: `
-      <h2>Welcome to SuperNFT</h2>
-      <p>Click below to verify your account:</p>
-      <a href="https://mysupernft-hash.github.io/login.html">Verify Account</a>
-    `
+    html: `<h2>Welcome</h2><p>Account created</p>`
   });
 
   res.json({ success: true });
