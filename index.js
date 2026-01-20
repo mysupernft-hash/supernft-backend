@@ -3,16 +3,30 @@ import cors from "cors";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
-dotenv.config(); // Load EMAIL_USER & EMAIL_PASS from .env
+dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json()); // Parse JSON body
+app.use(express.json());
 
-// Temporary in-memory "database"
-let users = [];
+// Temp in-memory users database
+const users = [];
 
-// ✅ SIGNUP API
+// Gmail transporter
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+transporter.verify((err, success) => {
+  if (err) console.error("SMTP Error:", err);
+  else console.log("Gmail SMTP ready ✅");
+});
+
+// ✅ Signup route
 app.post("/signup", async (req, res) => {
   const { name, email, password } = req.body;
 
@@ -20,71 +34,52 @@ app.post("/signup", async (req, res) => {
     return res.status(400).json({ message: "All fields required" });
   }
 
-  // Check if user exists
   const existingUser = users.find(u => u.email === email);
+
   if (existingUser) {
     if (!existingUser.verified) {
-      return res.status(400).json({ message: "Email already registered, please verify." });
+      // Resend verification email
+      const verifyLink = `https://mysupernft-hash.github.io/verify-check.html`;
+      try {
+        await transporter.sendMail({
+          from: `"SuperNFT" <${process.env.EMAIL_USER}>`,
+          to: email,
+          subject: "Verify your SuperNFT account",
+          html: `<h2>Welcome back to SuperNFT</h2>
+                 <p>Click the button to verify your account:</p>
+                 <a href="${verifyLink}" style="padding:10px 20px;background:#38bdf8;color:#020617;text-decoration:none;border-radius:6px;font-weight:bold;">Verify Account</a>`
+        });
+        return res.json({ message: "Verification email resent. Check your inbox!" });
+      } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: "Failed to send verification email" });
+      }
     } else {
       return res.status(400).json({ message: "User already registered" });
     }
   }
 
-  // Add user to "database"
-  const newUser = { name, email, password, verified: false };
-  users.push(newUser);
+  // Add new user (not verified)
+  users.push({ name, email, password, verified: false });
 
-  // Nodemailer setup
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
-
-  const verifyLink = `https://mysupernft-hash.github.io/verify-check.html?email=${encodeURIComponent(email)}`;
-
+  // Send verification email
+  const verifyLink = `https://mysupernft-hash.github.io/verify-check.html`;
   try {
     await transporter.sendMail({
       from: `"SuperNFT" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: "Verify your SuperNFT account",
-      html: `
-        <h2>Welcome to SuperNFT</h2>
-        <p>Click below to verify your account:</p>
-        <a href="${verifyLink}">Verify Account</a>
-      `
+      html: `<h2>Welcome to SuperNFT</h2>
+             <p>Click the button to verify your account:</p>
+             <a href="${verifyLink}" style="padding:10px 20px;background:#38bdf8;color:#020617;text-decoration:none;border-radius:6px;font-weight:bold;">Verify Account</a>`
     });
-
-    return res.json({ success: true, message: "Verification email sent" });
+    return res.json({ message: "Verification email sent. Check your inbox!" });
   } catch (err) {
-    console.error("Email error:", err);
-    return res.status(500).json({ message: "Failed to send email" });
+    console.error(err);
+    return res.status(500).json({ message: "Failed to send verification email" });
   }
 });
 
-// ✅ LOGIN API
-app.post("/login", (req, res) => {
-  const { email, password } = req.body;
-  const user = users.find(u => u.email === email && u.password === password);
-
-  if (!user) return res.status(400).json({ message: "Invalid credentials" });
-  if (!user.verified) return res.status(400).json({ message: "Please verify your email first" });
-
-  return res.json({ success: true, message: `Welcome ${user.name}` });
-});
-
-// ✅ Email verification route
-app.get("/verify", (req, res) => {
-  const { email } = req.query;
-  const user = users.find(u => u.email === email);
-  if (!user) return res.status(400).send("User not found");
-
-  user.verified = true;
-  return res.send("Email verified successfully! You can now login.");
-});
-
-// Start server
+// ✅ Start server
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`SuperNFT backend running on port ${PORT}`));
+app.listen(PORT, () => console.log(`SuperNFT backend running on port ${PORT} ✅`));
