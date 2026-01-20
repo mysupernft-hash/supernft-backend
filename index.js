@@ -1,4 +1,3 @@
-// index.js
 import express from "express";
 import cors from "cors";
 import nodemailer from "nodemailer";
@@ -13,7 +12,7 @@ const PORT = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.json());
 
-// TEMP: simple in-memory users array
+// TEMP in-memory users
 const users = [];
 
 // SIGNUP API
@@ -29,9 +28,8 @@ app.post("/signup", async (req, res) => {
     return res.status(400).json({ message: "User already registered" });
   }
 
-  // Save user (in-memory)
-  const newUser = { name, email, password, verified: false };
-  users.push(newUser);
+  // Save user
+  users.push({ name, email, password, verified: false });
 
   // Nodemailer config
   const transporter = nodemailer.createTransport({
@@ -61,9 +59,9 @@ app.post("/signup", async (req, res) => {
   }
 });
 
-// Optional: GET route to handle browser visits
-app.get("/signup", (req, res) => {
-  res.send("This route is for API POST only. Use the signup form on frontend.");
+// Optional GET route
+app.get("/", (req, res) => {
+  res.send("SuperNFT backend running. Use POST /signup to register.");
 });
 
 app.listen(PORT, () => {
